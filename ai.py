@@ -165,10 +165,12 @@ def extract_response(api_response: Dict[str, Any]) -> Optional[str]:
 
 
 def main():
-    # TODO Input
+    # TODO Input from args
+    # TODO Input from read
     # TODO Shift \n for newline
     # TODO Arrows
     # TODO ctrl A/E
+    # TODO \command
     try:
         with (Path.home() / ".config" / "ai" / "config.json").open() as f:
             config_content = f.read()  # TODO : HANDLE
