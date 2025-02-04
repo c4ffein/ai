@@ -8,17 +8,11 @@ WARNING: I don't recommand using this as-is. This a PoC, and usable by me becaus
 TODOs and possible improvements: Fill this
 """
 
-
-import mimetypes
 import os
-from binascii import hexlify
 from enum import Enum
 from hashlib import sha256
-from io import BytesIO
-from itertools import chain
 from json import dumps, loads
 from pathlib import Path
-from pprint import pprint as pp
 from ssl import (
     CERT_NONE,
     CERT_REQUIRED,
@@ -30,12 +24,10 @@ from ssl import (
     _ASN1Object,
     _ssl,
 )
-from sys import argv, exit
+from sys import exit
 from sys import flags as sys_flags
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 from urllib.request import Request, urlopen
-from uuid import uuid4
-
 
 colors = {"RED": "31", "GREEN": "32", "PURP": "34", "DIM": "90", "WHITE": "39"}
 Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
@@ -123,7 +115,7 @@ def post_body(cert_checksum, api_key, addr, url, json, timeout=30):  # TODO Time
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
         "User-Agent": "",  # Otherwise would send default User-Agent
-        "Content-Type": f"application/json",
+        "Content-Type": "application/json",
     }
     body = dumps(json).encode()  # TODO Good encoding, check headers
     request = Request("https://" + (addr + url).decode(), body, headers=headers)
@@ -136,10 +128,10 @@ def post_body(cert_checksum, api_key, addr, url, json, timeout=30):  # TODO Time
 
 def usage(wrong_config=False, wrong_command=False, wrong_arg_len=False):
     output_lines = [
-        "ai - KISS LLM bridge to your terminal"
+        "ai - KISS LLM bridge to your terminal",
+        "=====================================",
         # TODO
-        "==========================",
-        """~/.config/ai/config.json => TODO"""
+        """~/.config/ai/config.json => TODO""",
         "=======================",
         "- ai                                ==> first test",
         "=======================",
@@ -153,7 +145,7 @@ def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 10
     data = {
         "model": "claude-3-sonnet-20240229",
         "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}]
+        "messages": [{"role": "user", "content": prompt}],
     }
     return post_body(  # TODO handle all errors
         certificate,
@@ -168,8 +160,8 @@ def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 10
 def extract_response(api_response: Dict[str, Any]) -> Optional[str]:
     try:
         return api_response["content"][0]["text"]
-    except(KeyError, IndexError):
-        raise AIException("Unexpected API response format")
+    except (KeyError, IndexError) as err:
+        raise AIException("Unexpected API response format") from err
 
 
 def main():
