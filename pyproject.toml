@@ -63,3 +63,6 @@ lint.select = [
     "W",    # pycodestyle warnings
 ]
 line-length = 120
+
+[tool.ruff.lint.per-file-ignores]
+"ai.py" = ["C901"]  # No complexity check
