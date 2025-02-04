@@ -1,2 +1,2 @@
 # ai
-KISS LLM bridge to your terminal, on Python
+KISS LLM bridge to your terminal, in Python
