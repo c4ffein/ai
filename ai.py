@@ -24,7 +24,7 @@ from ssl import (
     _ASN1Object,
     _ssl,
 )
-from sys import exit
+from sys import argv, exit
 from sys import flags as sys_flags
 from typing import Any, Dict, Optional
 from urllib.request import Request, urlopen
@@ -165,6 +165,7 @@ def extract_response(api_response: Dict[str, Any]) -> Optional[str]:
 
 
 def main():
+    arg = argv[1] if len(argv) > 1 else "friend?"
     # TODO Input from args
     # TODO Input from read
     # TODO Shift \n for newline
@@ -180,7 +181,7 @@ def main():
         assert len(certificate) == 64  # TODO : BETTER
     except Exception:
         return usage(wrong_config=True)
-    response = ask_claude(certificate, api_key, "friend?")
+    response = ask_claude(certificate, api_key, arg)
     answer = extract_response(response)
     print(answer)
 
