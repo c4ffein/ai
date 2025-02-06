@@ -124,7 +124,7 @@ def post_body(cert_checksum, api_key, addr, url, json, timeout=30):
         r = urlopen(request, context=context, timeout=timeout)  # TODO data doesnt work?
     except Exception as e:
         if isinstance(getattr(e, "reason", None), socket_timeout):
-            raise AIException("Timed out")
+            raise AIException("Timed out") from e
         raise e  # TODO Better
     return loads(r.read())  # TODO Secure
 
