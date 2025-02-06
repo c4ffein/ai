@@ -13,6 +13,7 @@ from enum import Enum
 from hashlib import sha256
 from json import dumps, loads
 from pathlib import Path
+from socket import timeout as socket_timeout
 from ssl import (
     CERT_NONE,
     CERT_REQUIRED,
@@ -109,7 +110,7 @@ class AIException(Exception):
     pass
 
 
-def post_body(cert_checksum, api_key, addr, url, json, timeout=30):  # TODO Timeout
+def post_body(cert_checksum, api_key, addr, url, json, timeout=30):
     context = make_pinned_ssl_context(cert_checksum)
     headers = {
         "x-api-key": api_key,
@@ -120,8 +121,10 @@ def post_body(cert_checksum, api_key, addr, url, json, timeout=30):  # TODO Time
     body = dumps(json).encode()  # TODO Good encoding, check headers
     request = Request("https://" + (addr + url).decode(), body, headers=headers)
     try:
-        r = urlopen(request, context=context)  # TODO data doesnt work?
+        r = urlopen(request, context=context, timeout=timeout)  # TODO data doesnt work?
     except Exception as e:
+        if isinstance(getattr(e, "reason", None), socket_timeout):
+            raise AIException("Timed out")
         raise e  # TODO Better
     return loads(r.read())  # TODO Secure
 
