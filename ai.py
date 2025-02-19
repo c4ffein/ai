@@ -35,17 +35,12 @@ Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
 COLOR_LEN = 4
 
 
-# TODO : UT to ensure the checks are called for any python version
-# TODO : UT to ensure those works if we create 2 contexts with 2 different certificatesa
-# TODO : UT to ensure check is called if already opened socket gets wrapped
-# TODO : UT to ensure check is called if connecting on new socket
-# TODO : Ensure called with correct params, so that regular verif, and so getpeercert is enough
-def make_pinned_ssl_context(pinned_sha_256):
+def make_pinned_ssl_context(pinned_sha_256):  # TODO : Update
     class PinnedSSLSocket(SSLSocket):
         def check_pinned_cert(self):
             der_cert_bin = self.getpeercert(True)
-            if sha256(der_cert_bin).hexdigest() != pinned_sha_256:  # TODO : Check this is enough
-                raise Exception("Incorrect certificate checksum")  # TODO : Better
+            if sha256(der_cert_bin).hexdigest() != pinned_sha_256:
+                raise Exception("Incorrect certificate checksum")
 
         def connect(self, addr):  # Needed for when the context creates a new connection
             r = super().connect(addr)
