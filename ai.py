@@ -20,6 +20,7 @@ from ssl import (
     PROTOCOL_TLS_CLIENT,
     PROTOCOL_TLS_SERVER,
     Purpose,
+    SSLCertVerificationError,
     SSLContext,
     SSLSocket,
     _ASN1Object,
@@ -35,45 +36,27 @@ Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
 COLOR_LEN = 4
 
 
-def make_pinned_ssl_context(pinned_sha_256):  # TODO : Update
+def make_pinned_ssl_context(pinned_sha_256):
+    """
+    Returns an instance of a subclass of SSLContext that uses a subclass of SSLSocket
+    that actually verifies the sha256 of the certificate during the TLS handshake
+    Tested with `python-version: [3.8, 3.9, 3.10, 3.11, 3.12, 3.13]`
+    Original code can be found at https://github.com/c4ffein/python-snippets
+    """
+
     class PinnedSSLSocket(SSLSocket):
         def check_pinned_cert(self):
             der_cert_bin = self.getpeercert(True)
             if sha256(der_cert_bin).hexdigest() != pinned_sha_256:
-                raise Exception("Incorrect certificate checksum")
+                raise SSLCertVerificationError("Incorrect certificate checksum")
 
-        def connect(self, addr):  # Needed for when the context creates a new connection
-            r = super().connect(addr)
-            self.check_pinned_cert()
-            return r
-
-        def connect_ex(self, addr):  # Needed for when the context creates a new connection
-            r = super().connect_ex(addr)
+        def do_handshake(self, *args, **kwargs):
+            r = super().do_handshake(*args, **kwargs)
             self.check_pinned_cert()
             return r
 
     class PinnedSSLContext(SSLContext):
         sslsocket_class = PinnedSSLSocket
-
-        def wrap_socket(  # Needed for when we wrap an exising socket
-            self,
-            sock,
-            server_side=False,
-            do_handshake_on_connect=True,
-            suppress_ragged_eofs=True,
-            server_hostname=None,
-            session=None,
-        ):
-            ws = super().wrap_socket(
-                sock,
-                server_side=server_side,
-                do_handshake_on_connect=do_handshake_on_connect,
-                suppress_ragged_eofs=suppress_ragged_eofs,
-                server_hostname=server_hostname,
-                session=session,
-            )
-            ws.check_pinned_cert()
-            return ws
 
     def create_pinned_default_context(purpose=Purpose.SERVER_AUTH, *, cafile=None, capath=None, cadata=None):
         if not isinstance(purpose, _ASN1Object):
@@ -89,9 +72,7 @@ def make_pinned_ssl_context(pinned_sha_256):  # TODO : Update
         if cafile or capath or cadata:
             context.load_verify_locations(cafile, capath, cadata)
         elif context.verify_mode != CERT_NONE:
-            context.load_default_certs(
-                purpose
-            )  # Try loading default system root CA certificates, this may fail silently.
+            context.load_default_certs(purpose)  # Try loading default system root CA certificates, may fail silently
         if hasattr(context, "keylog_filename"):  # OpenSSL 1.1.1 keylog file
             keylogfile = os.environ.get("SSLKEYLOGFILE")
             if keylogfile and not sys_flags.ignore_environment:
