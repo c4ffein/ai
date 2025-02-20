@@ -151,6 +151,8 @@ def main():
     # TODO Arrows
     # TODO ctrl A/E
     # TODO \command
+    # TODO Update Claude
+    # TODO Add le Chat as far faster
     try:
         with (Path.home() / ".config" / "ai" / "config.json").open() as f:
             config_content = f.read()  # TODO : HANDLE
