@@ -36,6 +36,15 @@ Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
 COLOR_LEN = 4
 
 
+CLAUDE_MODELS = [
+    ["claude-3-5-sonnet-20241022"],
+    ["claude-3-5-haiku-20241022"],
+    ["claude-3-opus-20240229"],
+    ["claude-3-sonnet-20240229"],
+    ["claude-3-haiku-20240229"],
+]
+
+
 def make_pinned_ssl_context(pinned_sha_256):
     """
     Returns an instance of a subclass of SSLContext that uses a subclass of SSLSocket
@@ -90,7 +99,7 @@ def post_body(cert_checksum, api_key, addr, url, json, timeout=30):
     context = make_pinned_ssl_context(cert_checksum)
     headers = {
         "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
+        "anthropic-version": "2023-06-01",  # API feature lock
         "User-Agent": "",  # Otherwise would send default User-Agent
         "Content-Type": "application/json",
     }
@@ -122,7 +131,7 @@ def usage(wrong_config=False, wrong_command=False, wrong_arg_len=False):
 
 def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 1000) -> Dict[str, Any]:
     data = {
-        "model": "claude-3-sonnet-20240229",
+        "model": CLAUDE_MODELS[0][0],
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}],
     }
