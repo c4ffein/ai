@@ -33,7 +33,6 @@ from urllib.request import Request, urlopen
 
 colors = {"RED": "31", "GREEN": "32", "PURP": "34", "DIM": "90", "WHITE": "39"}
 Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
-COLOR_LEN = 4
 
 
 CLAUDE_MODELS = [
