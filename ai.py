@@ -180,7 +180,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        exit(main())
     except AIException as e:
         print(f"{Color.RED.value}\n  !!  {e}  !!  \n")
         exit(-1)
