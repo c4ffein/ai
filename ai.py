@@ -9,9 +9,11 @@ TODOs and possible improvements: Fill this
 """
 
 import os
+from base64 import b64encode
 from enum import Enum
 from hashlib import sha256
 from json import dumps, loads
+from mimetypes import guess_type
 from pathlib import Path
 from socket import timeout as socket_timeout
 from ssl import (
@@ -130,11 +132,17 @@ def usage(wrong_config=False, wrong_command=False, wrong_arg_len=False):
     return -1
 
 
-def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 1000) -> Dict[str, Any]:
+def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 1000, files=None) -> Dict[str, Any]:
+    get_source = lambda file: {
+        "type": "base64", "media_type": guess_type(file)[0], "data": b64encode(Path(file).read_bytes()).decode()
+    }
+    content = prompt if files is None else [
+        *[{"type": "document", "source": get_source(file)} for file in files], {"type": "text", "text": prompt}
+    ]
     data = {
         "model": CLAUDE_MODELS[0][0],
         "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": content}],
     }
     return post_body(  # TODO handle all errors
         certificate,
@@ -153,8 +161,26 @@ def extract_response(api_response: Dict[str, Any]) -> Optional[str]:
         raise AIException("Unexpected API response format") from err
 
 
+def consume_args():
+    if len(argv) <= 1:
+        return ["friend?", None]
+    prompt = None
+    files = []
+    for arg in argv[1:]:
+        if arg.startswith("file="):
+            file_path = Path(arg[5:])
+            if not file_path.is_file():
+                raise AIException(f"File {file_path} does not exist")
+            files.append(file_path)
+            continue
+        elif prompt is not None:
+            raise AIException("Multiple prompts detected, currently not allowed")
+        prompt = arg
+    return [prompt, files or None]
+
+
 def main():
-    arg = argv[1] if len(argv) > 1 else "friend?"
+    prompt, files = consume_args()
     # TODO Input from args
     # TODO Input from read
     # TODO Shift \n for newline
@@ -172,7 +198,7 @@ def main():
         assert len(certificate) == 64  # TODO : BETTER
     except Exception:
         return usage(wrong_config=True)
-    response = ask_claude(certificate, api_key, arg)
+    response = ask_claude(certificate, api_key, prompt, files=files)
     answer = extract_response(response)
     print(answer)
 
