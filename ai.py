@@ -133,13 +133,13 @@ def usage(wrong_config=False, wrong_command=False, wrong_arg_len=False):
 
 
 def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 1000, files=None) -> Dict[str, Any]:
-    get_source = lambda file: (
-        {"type": "base64", "media_type": guess_type(file)[0], "data": b64encode(Path(file).read_bytes()).decode()}
+    b64_file = lambda file: b64encode(Path(file).read_bytes()).decode()
+    get_file = lambda file: (
+        {"type": "document", "source": {"type": "base64", "media_type": guess_type(file)[0], "data": b64_file(file)}}
+        if guess_type(file)[0] == "application/pdf"
+        else {"type": "text", "text": Path(file).read_text()}
     )
-    content = [
-        *[{"type": "document", "source": get_source(file)} for file in (files if files is not None else [])],
-        {"type": "text", "text": prompt},
-    ]
+    content = [{"type": "text", "text": prompt}, *[get_file(file) for file in (files if files is not None else [])]]
     data = {
         "model": CLAUDE_MODELS[0][0],
         "max_tokens": max_tokens,
