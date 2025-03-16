@@ -133,16 +133,17 @@ def usage(wrong_config=False, wrong_command=False, wrong_arg_len=False):
 
 
 def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 1000, files=None) -> Dict[str, Any]:
-    get_source = lambda file: {
-        "type": "base64", "media_type": guess_type(file)[0], "data": b64encode(Path(file).read_bytes()).decode()
-    }
-    content = prompt if files is None else [
-        *[{"type": "document", "source": get_source(file)} for file in files], {"type": "text", "text": prompt}
+    get_source = lambda file: (
+        {"type": "base64", "media_type": guess_type(file)[0], "data": b64encode(Path(file).read_bytes()).decode()}
+    )
+    content = [
+        *[{"type": "document", "source": get_source(file)} for file in (files if files is not None else [])],
+        {"type": "text", "text": prompt},
     ]
     data = {
         "model": CLAUDE_MODELS[0][0],
         "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": content}],
+        "messages": [{"role": "user", "content": prompt if files is None else content}],
     }
     return post_body(  # TODO handle all errors
         certificate,
