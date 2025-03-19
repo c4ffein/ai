@@ -132,7 +132,7 @@ def usage(wrong_config=False, wrong_command=False, wrong_arg_len=False):
     return -1
 
 
-def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 1000, files=None) -> Dict[str, Any]:
+def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 10000, files=None) -> Dict[str, Any]:
     b64_file = lambda file: b64encode(Path(file).read_bytes()).decode()
     get_file = lambda file: (
         {"type": "document", "source": {"type": "base64", "media_type": guess_type(file)[0], "data": b64_file(file)}}
@@ -155,9 +155,9 @@ def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 10
     )
 
 
-def extract_response(api_response: Dict[str, Any]) -> Optional[str]:
+def extract_response(api_response: Dict[str, Any]) -> tuple[Optional[str], bool]:
     try:
-        return api_response["content"][0]["text"]
+        return api_response["content"][0]["text"], api_response["stop_reason"] == "max_tokens"
     except (KeyError, IndexError) as err:
         raise AIException("Unexpected API response format") from err
 
@@ -200,8 +200,10 @@ def main():
     except Exception:
         return usage(wrong_config=True)
     response = ask_claude(certificate, api_key, prompt, files=files)
-    answer = extract_response(response)
+    answer, stopped_reasoning = extract_response(response)
     print(answer)
+    if stopped_reasoning:
+        raise AIException("Reached tokens limit")
 
 
 if __name__ == "__main__":
