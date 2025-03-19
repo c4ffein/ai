@@ -111,8 +111,10 @@ def post_body(cert_checksum, api_key, addr, url, json, timeout=30):
     try:
         r = urlopen(request, context=context, timeout=timeout)  # TODO data doesnt work?
     except Exception as e:
-        if isinstance(getattr(e, "reason", None), socket_timeout):
+        if isinstance(e, socket_timeout):
             raise AIException("Timed out") from e
+        if isinstance(getattr(e, "reason", None), socket_timeout):
+            raise AIException("TLS timed out") from e  # Most probable cause, should check this is always the case
         raise e  # TODO Better
     return loads(r.read())  # TODO Secure
 
@@ -151,7 +153,7 @@ def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 10
         b"api.anthropic.com",
         b"/v1/messages",
         json=data,
-        timeout=30,
+        timeout=150,
     )
 
 
