@@ -31,6 +31,7 @@ from ssl import (
 from sys import argv, exit
 from sys import flags as sys_flags
 from typing import Any, Dict, Optional
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 colors = {"RED": "31", "GREEN": "32", "PURP": "34", "DIM": "90", "WHITE": "39"}
@@ -98,7 +99,7 @@ class AIException(Exception):
     pass
 
 
-def post_body(cert_checksum, api_key, addr, url, json, timeout=30):
+def post_body_to_claude(cert_checksum, api_key, json, timeout=30):
     context = make_pinned_ssl_context(cert_checksum)
     headers = {
         "x-api-key": api_key,
@@ -107,32 +108,36 @@ def post_body(cert_checksum, api_key, addr, url, json, timeout=30):
         "Content-Type": "application/json",
     }
     body = dumps(json).encode()  # TODO Good encoding, check headers
-    request = Request("https://" + (addr + url).decode(), body, headers=headers)
+    request = Request("https://api.anthropic.com/v1/messages", body, headers=headers)
     try:
         response = urlopen(request, context=context, timeout=timeout)
         r = response.read()
+    except HTTPError as exc:
+        raise AIException(f"HTTP Error when reaching Claude: {exc.code}") from exc
+    except socket_timeout as exc:
+        raise AIException("Timed out") from exc
     except Exception as exc:
-        if isinstance(exc, socket_timeout):
-            raise AIException("Timed out") from exc
         if isinstance(getattr(exc, "reason", None), socket_timeout):
             raise AIException("TLS timed out") from exc  # Most probable cause, should check this is always the case
-        raise exc  # TODO Better
+        # Keeping this as-is for now, should not happen if everything is handled correctly, add any necessary ones
+        raise AIException("Unknown error when trying to reach Claude") from exc
     try:
         return loads(r)
     except Exception as exc:
         raise AIException("Unable to parse JSON answer from the response") from exc
 
 
-def usage(wrong_config=False, wrong_command=False, wrong_arg_len=False):
+def usage(wrong_config=False):
     output_lines = [
         "ai - KISS LLM bridge to your terminal",
         "=====================================",
-        # TODO
-        """~/.config/ai/config.json => TODO""",
+        """~/.config/ai/config.json => {"api-key": "sk-ant-XXXX", "certificate": "XXXX"}""",
         "=======================",
-        "- ai                                ==> first test",
+        """- ai                              ==> show usage""",
+        """- ai "A question"                 ==> ask something""",
+        """- ai "A question" file="file.md"  ==> ask something with an additional file""",
         "=======================",
-        "This should help you get files TODO",
+        "Only reaching out to Claude for now, will maybe add Le Chat from Mistral",
     ]
     print("\n" + "\n".join(output_lines) + "\n")
     return -1
@@ -147,18 +152,11 @@ def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 10
     )
     content = [{"type": "text", "text": prompt}, *[get_file(file) for file in (files if files is not None else [])]]
     data = {
-        "model": CLAUDE_MODELS[0][0],
+        "model": CLAUDE_MODELS[0][0],  # TODO
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt if files is None else content}],
     }
-    return post_body(  # TODO handle all errors
-        certificate,
-        api_key,
-        b"api.anthropic.com",
-        b"/v1/messages",
-        json=data,
-        timeout=150,
-    )
+    return post_body_to_claude(certificate, api_key, json=data, timeout=150)
 
 
 def extract_response(api_response: Dict[str, Any]) -> tuple[Optional[str], bool]:
@@ -170,7 +168,7 @@ def extract_response(api_response: Dict[str, Any]) -> tuple[Optional[str], bool]
 
 def consume_args():
     if len(argv) <= 1:
-        return ["friend?", None]
+        return True, None, None
     prompt = None
     files = []
     for arg in argv[1:]:
@@ -183,11 +181,13 @@ def consume_args():
         elif prompt is not None:
             raise AIException("Multiple prompts detected, currently not allowed")
         prompt = arg
-    return [prompt, files or None]
+    return False, prompt, files or None
 
 
 def main():
-    prompt, files = consume_args()
+    usage_required, prompt, files = consume_args()
+    if usage_required:
+        return usage()
     # TODO Add le Chat as far faster
     try:
         with (Path.home() / ".config" / "ai" / "config.json").open() as f:
