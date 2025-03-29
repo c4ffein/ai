@@ -109,14 +109,18 @@ def post_body(cert_checksum, api_key, addr, url, json, timeout=30):
     body = dumps(json).encode()  # TODO Good encoding, check headers
     request = Request("https://" + (addr + url).decode(), body, headers=headers)
     try:
-        r = urlopen(request, context=context, timeout=timeout)  # TODO data doesnt work?
-    except Exception as e:
-        if isinstance(e, socket_timeout):
-            raise AIException("Timed out") from e
-        if isinstance(getattr(e, "reason", None), socket_timeout):
-            raise AIException("TLS timed out") from e  # Most probable cause, should check this is always the case
-        raise e  # TODO Better
-    return loads(r.read())  # TODO Secure
+        response = urlopen(request, context=context, timeout=timeout)
+        r = response.read()
+    except Exception as exc:
+        if isinstance(exc, socket_timeout):
+            raise AIException("Timed out") from exc
+        if isinstance(getattr(exc, "reason", None), socket_timeout):
+            raise AIException("TLS timed out") from exc  # Most probable cause, should check this is always the case
+        raise exc  # TODO Better
+    try:
+        return loads(r)
+    except Exception as exc:
+        raise AIException("Unable to parse JSON answer from the response") from exc
 
 
 def usage(wrong_config=False, wrong_command=False, wrong_arg_len=False):
