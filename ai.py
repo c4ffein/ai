@@ -188,13 +188,6 @@ def consume_args():
 
 def main():
     prompt, files = consume_args()
-    # TODO Input from args
-    # TODO Input from read
-    # TODO Shift \n for newline
-    # TODO Arrows
-    # TODO ctrl A/E
-    # TODO \command
-    # TODO Update Claude
     # TODO Add le Chat as far faster
     try:
         with (Path.home() / ".config" / "ai" / "config.json").open() as f:
