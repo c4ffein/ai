@@ -15,6 +15,7 @@ from hashlib import sha256
 from json import dumps, loads
 from mimetypes import guess_type
 from pathlib import Path
+from socket import gaierror
 from socket import timeout as socket_timeout
 from ssl import (
     CERT_NONE,
@@ -119,6 +120,8 @@ def post_body_to_claude(cert_checksum, api_key, json, timeout=30):
     except Exception as exc:
         if isinstance(getattr(exc, "reason", None), socket_timeout):
             raise AIException("TLS timed out") from exc  # Most probable cause, should check this is always the case
+        if isinstance(getattr(exc, "reason", None), gaierror):
+            raise AIException("Failed domain name resolution") from exc
         # Keeping this as-is for now, should not happen if everything is handled correctly, add any necessary ones
         raise AIException("Unknown error when trying to reach Claude") from exc
     try:
