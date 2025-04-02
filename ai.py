@@ -214,7 +214,7 @@ if __name__ == "__main__":
     try:
         exit(main())
     except KeyboardInterrupt:
-        print(f"\n  !!  KeyboardInterrupt received  !!  \n")
+        print("\n  !!  KeyboardInterrupt received  !!  \n")
         exit(-2)
     except AIException as e:
         print(f"{Color.RED.value}\n  !!  {e}  !!  \n")
