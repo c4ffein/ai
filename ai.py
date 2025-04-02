@@ -122,6 +122,8 @@ def post_body_to_claude(cert_checksum, api_key, json, timeout=30):
             raise AIException("TLS timed out") from exc  # Most probable cause, should check this is always the case
         if isinstance(getattr(exc, "reason", None), gaierror):
             raise AIException("Failed domain name resolution") from exc
+        if isinstance(getattr(exc, "reason", None), SSLCertVerificationError):
+            raise AIException("Failed SSL cert validation") from exc
         # Keeping this as-is for now, should not happen if everything is handled correctly, add any necessary ones
         raise AIException("Unknown error when trying to reach Claude") from exc
     try:
@@ -211,6 +213,9 @@ def main():
 if __name__ == "__main__":
     try:
         exit(main())
+    except KeyboardInterrupt:
+        print(f"\n  !!  KeyboardInterrupt received  !!  \n")
+        exit(-2)
     except AIException as e:
         print(f"{Color.RED.value}\n  !!  {e}  !!  \n")
         exit(-1)
