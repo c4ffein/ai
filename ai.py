@@ -217,7 +217,7 @@ if __name__ == "__main__":
         print("\n  !!  KeyboardInterrupt received  !!  \n")
         exit(-2)
     except AIException as e:
-        print(f"{Color.RED.value}\n  !!  {e}  !!  \n")
+        print(f"{Color.RED.value}\n  !!  {e}  !!  \n{Color.WHITE.value}")
         exit(-1)
     except Exception:
         raise
