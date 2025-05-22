@@ -40,6 +40,8 @@ Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
 
 
 CLAUDE_MODELS = [
+    ["claude-opus-4-20250514"],
+    ["claude-sonnet-4-20250514"],
     ["claude-3-7-sonnet-latest"],
     ["claude-3-7-haiku-latest"],
     ["claude-3-5-sonnet-20241022"],
@@ -157,7 +159,7 @@ def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 10
     )
     content = [{"type": "text", "text": prompt}, *[get_file(file) for file in (files if files is not None else [])]]
     data = {
-        "model": CLAUDE_MODELS[0][0],  # TODO
+        "model": CLAUDE_MODELS[1][0],  # TODO
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt if files is None else content}],
     }
