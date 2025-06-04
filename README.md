@@ -8,12 +8,12 @@ KISS LLM bridge to your terminal, in Python
 ## Help
 ```
 ai - KISS LLM bridge to your terminal
-=====================================
+─────────────────────────────────────
 ~/.config/ai/config.json => {"api-key": "sk-ant-XXXX", "certificate": "XXXX"}
-=======================
+─────────────────────────────────────
 - ai                              ==> show usage
 - ai "A question"                 ==> ask something
 - ai "A question" file="file.md"  ==> ask something with an additional file
-=======================
+─────────────────────────────────────
 Only reaching out to Claude for now, will maybe add Le Chat from Mistral
 ```
