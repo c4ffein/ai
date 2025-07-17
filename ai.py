@@ -6,6 +6,7 @@ MIT License - Copyright (c) 2025 c4ffein
 WARNING: I don't recommand using this as-is. This a PoC, and usable by me because I know what I want to do with it.
 - You can use it if you feel that you can edit the code yourself and you can live with my future breaking changes.
 TODOs and possible improvements: Fill this
+TODO system prompts in ~/.config/ai/system-prompts
 """
 
 import os
