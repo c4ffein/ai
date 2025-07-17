@@ -6,17 +6,18 @@ MIT License - Copyright (c) 2025 c4ffein
 WARNING: I don't recommand using this as-is. This a PoC, and usable by me because I know what I want to do with it.
 - You can use it if you feel that you can edit the code yourself and you can live with my future breaking changes.
 TODOs and possible improvements: Fill this
-TODO system prompts in ~/.config/ai/system-prompts
 """
 
 import os
 from base64 import b64encode
 from collections import namedtuple
+from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
 from json import dumps, loads
 from mimetypes import guess_type
 from pathlib import Path
+from re import fullmatch
 from socket import gaierror
 from socket import timeout as socket_timeout
 from ssl import (
@@ -144,12 +145,14 @@ def usage(wrong_config=False):
     output_lines = [
         "ai - KISS LLM bridge to your terminal",
         "─────────────────────────────────────",
-        """~/.config/ai/config.json => {"api-key": "sk-ant-XXXX", "certificate": "XXXX"}""",
+        """~/.config/ai/config.json     => {"api-key": "sk-ant-XXXX", "certificate": "XXXX"}""",
+        """~/.config/ai/system-prompts/ => directory to store system prompts by name""",
         "─────────────────────────────────────",
         """- ai                                ==> show usage""",
         """- ai "A question"                   ==> ask something""",
         """- ai "A question" file="file.md"    ==> ask something with an additional file""",
         """- ai "A question" model="claude-4"  ==> ask something with an specific model""",
+        """- ai "A question" system="shannon"  ==> ask something with a specific system prompt, by name""",
         "─────────────────────────────────────",
         "Only reaching out to Claude for now, will maybe add Le Chat from Mistral",
     ]
@@ -158,7 +161,7 @@ def usage(wrong_config=False):
 
 
 def ask_claude(
-    certificate: str, api_key: str, prompt: str, model: str, max_tokens: int = 10000, files=None
+    certificate: str, api_key: str, prompt: str, model: str, max_tokens: int = 10000, files=None, system_prompt=None
 ) -> Dict[str, Any]:
     b64_file = lambda file: b64encode(Path(file).read_bytes()).decode()
     get_file = lambda file: (
@@ -171,6 +174,7 @@ def ask_claude(
         "model": model,
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt if files is None else content}],
+        **({"system": system_prompt} if system_prompt is not None else {}),
     }
     return post_body_to_claude(certificate, api_key, json=data, timeout=150)
 
@@ -184,8 +188,9 @@ def extract_response(api_response: Dict[str, Any]) -> tuple[Optional[str], bool]
 
 def consume_args():
     if len(argv) <= 1:
-        return True, None, None, None
+        return True, None, None, None, None
     prompt = None
+    system_prompt = None
     files = []
     model = CLAUDE_MODELS[0].remote_handle
     for arg in argv[1:]:
@@ -204,14 +209,30 @@ def consume_args():
             if not model:
                 raise AIException(f"No model found for `{arg[6:]}`")
             continue
-        elif prompt is not None:
+        if arg.startswith("system="):
+            system_prompt_arg = arg[7:]
+            sanitization_regex = r"[A-Za-z0-9._-]*"
+            if not fullmatch(sanitization_regex, system_prompt_arg):
+                raise AIException(f"System prompt name must fully match: {sanitization_regex}")
+            system_prompt_path = Path.home() / ".config" / "ai" / "system-prompts" / system_prompt_arg
+            if not system_prompt_path.exists() or not system_prompt_path.is_file():
+                raise AIException(f"System prompt path not found: {system_prompt_path}")
+            try:
+                system_prompt = system_prompt_path.read_text()
+            except Exception as exc:
+                raise AIException(f"Unknown error when trying to read {system_prompt_path}") from exc
+            system_prompt = system_prompt.replace(
+                "{{currentDateTime}}", datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+            )
+            continue
+        if prompt is not None:
             raise AIException("Multiple prompts detected, currently not allowed")
         prompt = arg
-    return False, model, prompt, files or None
+    return False, model, system_prompt, prompt, files or None
 
 
 def main():
-    usage_required, model, prompt, files = consume_args()
+    usage_required, model, system_prompt, prompt, files = consume_args()
     if usage_required:
         return usage()
     # TODO Add le Chat as far faster
@@ -224,7 +245,7 @@ def main():
         assert len(certificate) == 64  # TODO : BETTER
     except Exception:
         return usage(wrong_config=True)
-    response = ask_claude(certificate, api_key, prompt, files=files, model=model)
+    response = ask_claude(certificate, api_key, prompt, system_prompt=system_prompt, files=files, model=model)
     answer, stopped_reasoning = extract_response(response)
     print(answer)
     if stopped_reasoning:
