@@ -10,6 +10,7 @@ TODOs and possible improvements: Fill this
 
 import os
 from base64 import b64encode
+from collections import namedtuple
 from enum import Enum
 from hashlib import sha256
 from json import dumps, loads
@@ -39,17 +40,21 @@ colors = {"RED": "31", "GREEN": "32", "PURP": "34", "DIM": "90", "WHITE": "39"}
 Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
 
 
-CLAUDE_MODELS = [
-    ["claude-opus-4-20250514"],
-    ["claude-sonnet-4-20250514"],
-    ["claude-3-7-sonnet-latest"],
-    ["claude-3-7-haiku-latest"],
-    ["claude-3-5-sonnet-20241022"],
-    ["claude-3-5-haiku-20241022"],
-    ["claude-3-opus-20240229"],
-    ["claude-3-sonnet-20240229"],
-    ["claude-3-haiku-20240229"],
+ClaudeModel = namedtuple("ClaudeModel", ("local_name", "remote_handle"))
+# fmt: off
+CLAUDE_MODELS_BASE = [
+    [ "claude-sonnet-4",   "claude-sonnet-4-20250514"   ],
+    [ "claude-opus-4",     "claude-opus-4-20250514"     ],
+    [ "claude-sonnet-3-7", "claude-3-7-sonnet-latest"   ],
+    [ "claude-haiku-3-7",  "claude-3-7-haiku-latest"    ],
+    [ "claude-sonnet-3-5", "claude-3-5-sonnet-20241022" ],
+    [ "claude-haiku-3-5",  "claude-3-5-haiku-20241022"  ],
+    [ "claude-opus-3",     "claude-3-opus-20240229"     ],
+    [ "claude-sonnet-3",   "claude-3-sonnet-20240229"   ],
+    [ "claude-haiku-3",    "claude-3-haiku-20240229"    ],
 ]
+# fmt: on
+CLAUDE_MODELS = [ClaudeModel(*arguments) for arguments in CLAUDE_MODELS_BASE]
 
 
 def make_pinned_ssl_context(pinned_sha_256):
@@ -137,20 +142,23 @@ def post_body_to_claude(cert_checksum, api_key, json, timeout=30):
 def usage(wrong_config=False):
     output_lines = [
         "ai - KISS LLM bridge to your terminal",
-        "=====================================",
+        "─────────────────────────────────────",
         """~/.config/ai/config.json => {"api-key": "sk-ant-XXXX", "certificate": "XXXX"}""",
-        "=======================",
-        """- ai                              ==> show usage""",
-        """- ai "A question"                 ==> ask something""",
-        """- ai "A question" file="file.md"  ==> ask something with an additional file""",
-        "=======================",
+        "─────────────────────────────────────",
+        """- ai                                ==> show usage""",
+        """- ai "A question"                   ==> ask something""",
+        """- ai "A question" file="file.md"    ==> ask something with an additional file""",
+        """- ai "A question" model="claude-4"  ==> ask something with an specific model""",
+        "─────────────────────────────────────",
         "Only reaching out to Claude for now, will maybe add Le Chat from Mistral",
     ]
     print("\n" + "\n".join(output_lines) + "\n")
     return -1
 
 
-def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 10000, files=None) -> Dict[str, Any]:
+def ask_claude(
+    certificate: str, api_key: str, prompt: str, model: str, max_tokens: int = 10000, files=None
+) -> Dict[str, Any]:
     b64_file = lambda file: b64encode(Path(file).read_bytes()).decode()
     get_file = lambda file: (
         {"type": "document", "source": {"type": "base64", "media_type": guess_type(file)[0], "data": b64_file(file)}}
@@ -159,7 +167,7 @@ def ask_claude(certificate: str, api_key: str, prompt: str, max_tokens: int = 10
     )
     content = [{"type": "text", "text": prompt}, *[get_file(file) for file in (files if files is not None else [])]]
     data = {
-        "model": CLAUDE_MODELS[1][0],  # TODO
+        "model": model,
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt if files is None else content}],
     }
@@ -175,9 +183,10 @@ def extract_response(api_response: Dict[str, Any]) -> tuple[Optional[str], bool]
 
 def consume_args():
     if len(argv) <= 1:
-        return True, None, None
+        return True, None, None, None
     prompt = None
     files = []
+    model = CLAUDE_MODELS[0].remote_handle
     for arg in argv[1:]:
         if arg.startswith("file="):
             file_path = Path(arg[5:])
@@ -185,14 +194,23 @@ def consume_args():
                 raise AIException(f"File {file_path} does not exist")
             files.append(file_path)
             continue
+        if arg.startswith("model="):
+            model = None
+            for checked_claude_model in CLAUDE_MODELS:
+                if checked_claude_model.local_name.startswith(arg[6:]):
+                    model = checked_claude_model.remote_handle
+                    break
+            if not model:
+                raise AIException(f"No model found for `{arg[6:]}`")
+            continue
         elif prompt is not None:
             raise AIException("Multiple prompts detected, currently not allowed")
         prompt = arg
-    return False, prompt, files or None
+    return False, model, prompt, files or None
 
 
 def main():
-    usage_required, prompt, files = consume_args()
+    usage_required, model, prompt, files = consume_args()
     if usage_required:
         return usage()
     # TODO Add le Chat as far faster
@@ -205,7 +223,7 @@ def main():
         assert len(certificate) == 64  # TODO : BETTER
     except Exception:
         return usage(wrong_config=True)
-    response = ask_claude(certificate, api_key, prompt, files=files)
+    response = ask_claude(certificate, api_key, prompt, files=files, model=model)
     answer, stopped_reasoning = extract_response(response)
     print(answer)
     if stopped_reasoning:
