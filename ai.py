@@ -145,14 +145,17 @@ def usage(wrong_config=False):
     output_lines = [
         "ai - KISS LLM bridge to your terminal",
         "─────────────────────────────────────",
-        """~/.config/ai/config.json     => {"api-key": "sk-ant-XXXX", "certificate": "XXXX"}""",
+        """~/.config/ai/config.json     => {"api-key": "sk-ant-XXXX",""",
+        """                                 "certificate": "XXXX",""",
+        """                                 "default-system-prompt":"shannon"}""",
         """~/.config/ai/system-prompts/ => directory to store system prompts by name""",
         "─────────────────────────────────────",
-        """- ai                                ==> show usage""",
-        """- ai "A question"                   ==> ask something""",
-        """- ai "A question" file="file.md"    ==> ask something with an additional file""",
-        """- ai "A question" model="claude-4"  ==> ask something with an specific model""",
-        """- ai "A question" system="shannon"  ==> ask something with a specific system prompt, by name""",
+        """- ai                                 ==> show usage""",
+        """- ai "A question"                    ==> ask something""",
+        """- ai "A question" file="file.md"     ==> ask something with an additional file""",
+        """- ai "A question" model="claude-4"   ==> ask something with an specific model""",
+        """- ai "A question" system="shannon"   ==> ask something with a specific system prompt, by name""",
+        """- ai "A question" system="original"  ==> ask something ignoring the default-system-prompt config""",
         "─────────────────────────────────────",
         "Only reaching out to Claude for now, will maybe add Le Chat from Mistral",
     ]
@@ -186,6 +189,20 @@ def extract_response(api_response: Dict[str, Any]) -> tuple[Optional[str], bool]
         raise AIException("Unexpected API response format") from err
 
 
+def load_system_prompt(system_prompt_arg: str):
+    sanitization_regex = r"[A-Za-z0-9._-]*"
+    if not fullmatch(sanitization_regex, system_prompt_arg):
+        raise AIException(f"System prompt name must fully match: {sanitization_regex}")
+    system_prompt_path = Path.home() / ".config" / "ai" / "system-prompts" / system_prompt_arg
+    if not system_prompt_path.exists() or not system_prompt_path.is_file():
+        raise AIException(f"System prompt path not found: {system_prompt_path}")
+    try:
+        system_prompt = system_prompt_path.read_text()
+    except Exception as exc:
+        raise AIException(f"Unknown error when trying to read {system_prompt_path}") from exc
+    return system_prompt.replace("{{currentDateTime}}", datetime.now(timezone.utc).replace(microsecond=0).isoformat())
+
+
 def consume_args():
     if len(argv) <= 1:
         return True, None, None, None, None
@@ -210,20 +227,7 @@ def consume_args():
                 raise AIException(f"No model found for `{arg[6:]}`")
             continue
         if arg.startswith("system="):
-            system_prompt_arg = arg[7:]
-            sanitization_regex = r"[A-Za-z0-9._-]*"
-            if not fullmatch(sanitization_regex, system_prompt_arg):
-                raise AIException(f"System prompt name must fully match: {sanitization_regex}")
-            system_prompt_path = Path.home() / ".config" / "ai" / "system-prompts" / system_prompt_arg
-            if not system_prompt_path.exists() or not system_prompt_path.is_file():
-                raise AIException(f"System prompt path not found: {system_prompt_path}")
-            try:
-                system_prompt = system_prompt_path.read_text()
-            except Exception as exc:
-                raise AIException(f"Unknown error when trying to read {system_prompt_path}") from exc
-            system_prompt = system_prompt.replace(
-                "{{currentDateTime}}", datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-            )
+            system_prompt = arg[7:]
             continue
         if prompt is not None:
             raise AIException("Multiple prompts detected, currently not allowed")
@@ -232,7 +236,7 @@ def consume_args():
 
 
 def main():
-    usage_required, model, system_prompt, prompt, files = consume_args()
+    usage_required, model, system_prompt_from_args, prompt, files = consume_args()
     if usage_required:
         return usage()
     # TODO Add le Chat as far faster
@@ -243,8 +247,13 @@ def main():
         api_key = config_dict["api-key"]
         certificate = config_dict["certificate"]
         assert len(certificate) == 64  # TODO : BETTER
+        system_prompt_from_config = config_dict.get("default-system-prompt")
     except Exception:
         return usage(wrong_config=True)
+    selected_system_prompt = system_prompt_from_config if system_prompt_from_config is not None else None
+    selected_system_prompt = system_prompt_from_args if system_prompt_from_args is not None else selected_system_prompt
+    selected_system_prompt = None if selected_system_prompt == "original" else selected_system_prompt
+    system_prompt = load_system_prompt(selected_system_prompt) if selected_system_prompt is not None else None
     response = ask_claude(certificate, api_key, prompt, system_prompt=system_prompt, files=files, model=model)
     answer, stopped_reasoning = extract_response(response)
     print(answer)
