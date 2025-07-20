@@ -56,6 +56,7 @@ CLAUDE_MODELS_BASE = [
     [ "claude-haiku-3",    "claude-3-haiku-20240229"    ],
 ]
 # fmt: on
+CLAUDE_MODELS_BASE = [*CLAUDE_MODELS_BASE, *([k[7:], v] for k, v in CLAUDE_MODELS_BASE)]
 CLAUDE_MODELS = [ClaudeModel(*arguments) for arguments in CLAUDE_MODELS_BASE]
 
 
