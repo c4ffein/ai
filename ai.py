@@ -38,6 +38,10 @@ from typing import Any, Dict, Optional
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+
+CAFILE = "/Users/sharl/.local/share/crypto/cacert.pem"
+
+
 colors = {"RED": "31", "GREEN": "32", "PURP": "34", "DIM": "90", "WHITE": "39"}
 Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
 
@@ -46,8 +50,9 @@ ClaudeModel = namedtuple("ClaudeModel", ("local_name", "remote_handle"))
 # fmt: off
 CLAUDE_MODELS_BASE = [
     [ "claude-opus-4-1",   "claude-opus-4-1-20250805"   ],
-    [ "claude-sonnet-4",   "claude-sonnet-4-20250514"   ],
     [ "claude-opus-4",     "claude-opus-4-20250514"     ],
+    [ "claude-sonnet-4-5", "claude-sonnet-4-5-20250929" ],
+    [ "claude-sonnet-4",   "claude-sonnet-4-20250514"   ],
     [ "claude-sonnet-3-7", "claude-3-7-sonnet-latest"   ],
     [ "claude-haiku-3-7",  "claude-3-7-haiku-latest"    ],
     [ "claude-sonnet-3-5", "claude-3-5-sonnet-20241022" ],
@@ -59,6 +64,9 @@ CLAUDE_MODELS_BASE = [
 # fmt: on
 CLAUDE_MODELS_BASE = [*CLAUDE_MODELS_BASE, *([k[7:], v] for k, v in CLAUDE_MODELS_BASE)]
 CLAUDE_MODELS = [ClaudeModel(*arguments) for arguments in CLAUDE_MODELS_BASE]
+
+
+EMPTY = object()
 
 
 def make_pinned_ssl_context(pinned_sha_256):
@@ -104,14 +112,14 @@ def make_pinned_ssl_context(pinned_sha_256):
                 context.keylog_filename = keylogfile
         return context
 
-    return create_pinned_default_context()
+    return create_pinned_default_context(cafile=CAFILE)
 
 
 class AIException(Exception):
     pass
 
 
-def post_body_to_claude(cert_checksum, api_key, json, timeout=30):
+def post_body_to_claude(cert_checksum, api_key, json=EMPTY, timeout=30, url="https://api.anthropic.com/v1/messages"):
     context = make_pinned_ssl_context(cert_checksum)
     headers = {
         "x-api-key": api_key,
@@ -119,8 +127,8 @@ def post_body_to_claude(cert_checksum, api_key, json, timeout=30):
         "User-Agent": "",  # Otherwise would send default User-Agent
         "Content-Type": "application/json",
     }
-    body = dumps(json).encode()  # TODO Good encoding, check headers
-    request = Request("https://api.anthropic.com/v1/messages", body, headers=headers)
+    body = dumps(json).encode() if json is not EMPTY else None  # TODO Good encoding, check headers
+    request = Request(url, body, headers=headers) if json is not EMPTY else Request(url, headers=headers)
     try:
         response = urlopen(request, context=context, timeout=timeout)
         r = response.read()
@@ -159,6 +167,8 @@ def usage(wrong_config=False):
         """- ai "A question" system="shannon"   ==> ask something with a specific system prompt, by name""",
         """- ai "A question" system="original"  ==> ask something ignoring the default-system-prompt config""",
         "─────────────────────────────────────",
+        """- ai action=list-models              ==> list available models""",
+        "─────────────────────────────────────",
         "Only reaching out to Claude for now, will maybe add Le Chat from Mistral",
     ]
     print("\n" + "\n".join(output_lines) + "\n")
@@ -184,6 +194,12 @@ def ask_claude(
     return post_body_to_claude(certificate, api_key, json=data, timeout=150)
 
 
+def list_models(certificate: str, api_key:str) -> Dict[str, Any]:
+    data = post_body_to_claude(certificate, api_key, timeout=150, url="https://api.anthropic.com/v1/models")
+    for line in data["data"]:
+        print(line["id"].ljust(26), "--", line["display_name"])
+
+
 def extract_response(api_response: Dict[str, Any]) -> tuple[Optional[str], bool]:
     try:
         return api_response["content"][0]["text"], api_response["stop_reason"] == "max_tokens"
@@ -207,9 +223,10 @@ def load_system_prompt(system_prompt_arg: str):
 
 def consume_args():
     if len(argv) <= 1:
-        return True, None, None, None, None
+        return True, None, None, None, None, None
     prompt = None
     system_prompt = None
+    specific_action = None
     files = []
     model = CLAUDE_MODELS[0].remote_handle
     for arg in argv[1:]:
@@ -231,14 +248,19 @@ def consume_args():
         if arg.startswith("system="):
             system_prompt = arg[7:]
             continue
+        if arg.startswith("action="):
+            specific_action = arg[7:]
+            if specific_action != "list-models":
+                raise AIException("Unknown action: {specific_action}")
+            continue
         if prompt is not None:
             raise AIException("Multiple prompts detected, currently not allowed")
         prompt = arg
-    return False, model, system_prompt, prompt, files or None
+    return False, specific_action, model, system_prompt, prompt, files or None
 
 
 def main():
-    usage_required, model, system_prompt_from_args, prompt, files = consume_args()
+    usage_required, specific_action, model, system_prompt_from_args, prompt, files = consume_args()
     if usage_required:
         return usage()
     # TODO Add le Chat as far faster
@@ -252,6 +274,8 @@ def main():
         system_prompt_from_config = config_dict.get("default-system-prompt")
     except Exception:
         return usage(wrong_config=True)
+    if specific_action == "list-models":
+        return list_models(certificate, api_key)
     selected_system_prompt = system_prompt_from_config if system_prompt_from_config is not None else None
     selected_system_prompt = system_prompt_from_args if system_prompt_from_args is not None else selected_system_prompt
     selected_system_prompt = None if selected_system_prompt == "original" else selected_system_prompt
