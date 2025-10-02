@@ -39,9 +39,6 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
-CAFILE = "/Users/sharl/.local/share/crypto/cacert.pem"
-
-
 colors = {"RED": "31", "GREEN": "32", "PURP": "34", "DIM": "90", "WHITE": "39"}
 Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
 
@@ -69,7 +66,7 @@ CLAUDE_MODELS = [ClaudeModel(*arguments) for arguments in CLAUDE_MODELS_BASE]
 EMPTY = object()
 
 
-def make_pinned_ssl_context(pinned_sha_256):
+def make_pinned_ssl_context(pinned_sha_256, cafile=None, capath=None, cadata=None):
     """
     Returns an instance of a subclass of SSLContext that uses a subclass of SSLSocket
     that actually verifies the sha256 of the certificate during the TLS handshake
@@ -91,7 +88,7 @@ def make_pinned_ssl_context(pinned_sha_256):
     class PinnedSSLContext(SSLContext):
         sslsocket_class = PinnedSSLSocket
 
-    def create_pinned_default_context(purpose=Purpose.SERVER_AUTH, *, cafile=None, capath=None, cadata=None):
+    def create_pinned_default_context(purpose=Purpose.SERVER_AUTH):
         if not isinstance(purpose, _ASN1Object):
             raise TypeError(purpose)
         if purpose == Purpose.SERVER_AUTH:  # Verify certs and host name in client mode
@@ -112,15 +109,24 @@ def make_pinned_ssl_context(pinned_sha_256):
                 context.keylog_filename = keylogfile
         return context
 
-    return create_pinned_default_context(cafile=CAFILE)
+    return create_pinned_default_context()
 
 
 class AIException(Exception):
     pass
 
 
-def post_body_to_claude(cert_checksum, api_key, json=EMPTY, timeout=30, url="https://api.anthropic.com/v1/messages"):
-    context = make_pinned_ssl_context(cert_checksum)
+class ConnectionInfos():
+    def __init__(self, cert_checksum, cafile, api_key):
+        self.cert_checksum, self.cafile, self.api_key = cert_checksum, cafile, api_key
+        self.cert_checksum = self.cert_checksum.lower()
+        if len(cert_checksum) != 64 or any(c not in "0123456789abcdef" for c in cert_checksum):
+            raise AIException("Invalid checksum format - expects 64 hex chars")
+
+
+def post_body_to_claude(connection_infos: ConnectionInfos, url: str, json=EMPTY, timeout=30):
+    cert_checksum, cafile, api_key = connection_infos.cert_checksum, connection_infos.cafile, connection_infos.api_key
+    context = make_pinned_ssl_context(cert_checksum, cafile=cafile)
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",  # API feature lock
@@ -157,6 +163,7 @@ def usage(wrong_config=False):
         "─────────────────────────────────────",
         """~/.config/ai/config.json     => {"api-key": "sk-ant-XXXX",""",
         """                                 "certificate": "XXXX",""",
+        """                                 "root-certificate-path": "XXXX",""",
         """                                 "default-system-prompt":"shannon"}""",
         """~/.config/ai/system-prompts/ => directory to store system prompts by name""",
         "─────────────────────────────────────",
@@ -176,7 +183,7 @@ def usage(wrong_config=False):
 
 
 def ask_claude(
-    certificate: str, api_key: str, prompt: str, model: str, max_tokens: int = 10000, files=None, system_prompt=None
+    connection_infos: ConnectionInfos, prompt: str, model: str, max_tokens: int = 10000, files=None, system_prompt=None
 ) -> Dict[str, Any]:
     b64_file = lambda file: b64encode(Path(file).read_bytes()).decode()
     get_file = lambda file: (
@@ -191,11 +198,11 @@ def ask_claude(
         "messages": [{"role": "user", "content": prompt if files is None else content}],
         **({"system": system_prompt} if system_prompt is not None else {}),
     }
-    return post_body_to_claude(certificate, api_key, json=data, timeout=150)
+    return post_body_to_claude(connection_infos, "https://api.anthropic.com/v1/messages", json=data, timeout=150)
 
 
-def list_models(certificate: str, api_key:str) -> Dict[str, Any]:
-    data = post_body_to_claude(certificate, api_key, timeout=150, url="https://api.anthropic.com/v1/models")
+def list_models(connection_infos: ConnectionInfos) -> Dict[str, Any]:
+    data = post_body_to_claude(connection_infos, "https://api.anthropic.com/v1/models", timeout=150, )
     for line in data["data"]:
         print(line["id"].ljust(26), "--", line["display_name"])
 
@@ -268,19 +275,21 @@ def main():
         with (Path.home() / ".config" / "ai" / "config.json").open() as f:
             config_content = f.read()  # TODO : HANDLE
         config_dict = loads(config_content)
-        api_key = config_dict["api-key"]
-        certificate = config_dict["certificate"]
-        assert len(certificate) == 64  # TODO : BETTER
+        connection_infos = ConnectionInfos(
+            cert_checksum=config_dict["certificate"],
+            cafile=config_dict["root-certificate-path"],
+            api_key=config_dict["api-key"],
+        )
         system_prompt_from_config = config_dict.get("default-system-prompt")
     except Exception:
         return usage(wrong_config=True)
     if specific_action == "list-models":
-        return list_models(certificate, api_key)
+        return list_models(connection_infos)
     selected_system_prompt = system_prompt_from_config if system_prompt_from_config is not None else None
     selected_system_prompt = system_prompt_from_args if system_prompt_from_args is not None else selected_system_prompt
     selected_system_prompt = None if selected_system_prompt == "original" else selected_system_prompt
     system_prompt = load_system_prompt(selected_system_prompt) if selected_system_prompt is not None else None
-    response = ask_claude(certificate, api_key, prompt, system_prompt=system_prompt, files=files, model=model)
+    response = ask_claude(connection_infos, prompt, system_prompt=system_prompt, files=files, model=model)
     answer, stopped_reasoning = extract_response(response)
     print(answer)
     if stopped_reasoning:
