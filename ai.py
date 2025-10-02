@@ -38,7 +38,6 @@ from typing import Any, Dict, Optional
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-
 colors = {"RED": "31", "GREEN": "32", "PURP": "34", "DIM": "90", "WHITE": "39"}
 Color = Enum("Color", [(k, f"\033[{v}m") for k, v in colors.items()])
 
@@ -116,7 +115,7 @@ class AIException(Exception):
     pass
 
 
-class ConnectionInfos():
+class ConnectionInfos:
     def __init__(self, cert_checksum, cafile, api_key):
         self.cert_checksum, self.cafile, self.api_key = cert_checksum, cafile, api_key
         self.cert_checksum = self.cert_checksum.lower()
@@ -202,7 +201,11 @@ def ask_claude(
 
 
 def list_models(connection_infos: ConnectionInfos) -> Dict[str, Any]:
-    data = post_body_to_claude(connection_infos, "https://api.anthropic.com/v1/models", timeout=150, )
+    data = post_body_to_claude(
+        connection_infos,
+        "https://api.anthropic.com/v1/models",
+        timeout=150,
+    )
     for line in data["data"]:
         print(line["id"].ljust(26), "--", line["display_name"])
 
