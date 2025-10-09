@@ -279,10 +279,10 @@ def main():
         with config_path.open() as f:
             config_content = f.read()
         config_dict = loads(config_content)
-    except FileNotFoundError:
-        raise AIException(f"Config file not found: {config_path}")
-    except PermissionError:
-        raise AIException(f"Permission denied reading config: {config_path}")
+    except FileNotFoundError as exc:
+        raise AIException(f"Config file not found: {config_path}") from exc
+    except PermissionError as exc:
+        raise AIException(f"Permission denied reading config: {config_path}") from exc
     except Exception as exc:
         raise AIException(f"Failed to parse config JSON: {exc}") from exc
     try:
