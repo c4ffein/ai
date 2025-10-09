@@ -172,6 +172,7 @@ def usage():
         """- ai "A question" model="claude-4"   ==> ask something with an specific model""",
         """- ai "A question" system="shannon"   ==> ask something with a specific system prompt, by name""",
         """- ai "A question" system="original"  ==> ask something ignoring the default-system-prompt config""",
+        """- ai "A question" stream=true        ==> stream response in real-time""",
         "─────────────────────────────────────",
         """- ai action=list-models              ==> list available models""",
         "─────────────────────────────────────",
@@ -179,6 +180,77 @@ def usage():
     ]
     print("\n" + "\n".join(output_lines) + "\n")
     return -1
+
+
+def stream_claude(
+    connection_infos: ConnectionInfos, prompt: str, model: str, max_tokens: int = 10000, files=None, system_prompt=None
+):
+    """Stream responses from Claude API, yielding (text_chunk, stop_reason) tuples."""
+    b64_file = lambda file: b64encode(Path(file).read_bytes()).decode()
+    get_file = lambda file: (
+        {"type": "document", "source": {"type": "base64", "media_type": guess_type(file)[0], "data": b64_file(file)}}
+        if guess_type(file)[0] == "application/pdf"
+        else {"type": "text", "text": Path(file).read_text()}
+    )
+    content = [{"type": "text", "text": prompt}, *[get_file(file) for file in (files if files is not None else [])]]
+    data = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt if files is None else content}],
+        "stream": True,
+        **({"system": system_prompt} if system_prompt is not None else {}),
+    }
+
+    cert_checksum, cafile, api_key = connection_infos.cert_checksum, connection_infos.cafile, connection_infos.api_key
+    context = make_pinned_ssl_context(cert_checksum, cafile=cafile)
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "User-Agent": "",
+        "Content-Type": "application/json",
+    }
+    body = dumps(data).encode()
+    request = Request("https://api.anthropic.com/v1/messages", body, headers=headers)
+
+    try:
+        response = urlopen(request, context=context, timeout=150)
+        stop_reason = None
+
+        for line in response:
+            line = line.decode("utf-8").strip()
+            if not line or not line.startswith("data: "):
+                continue
+            if line == "data: [DONE]":
+                break
+
+            try:
+                event_data = loads(line[6:])  # Skip 'data: ' prefix
+
+                if event_data.get("type") == "content_block_delta":
+                    text_chunk = event_data.get("delta", {}).get("text", "")
+                    if text_chunk:
+                        yield text_chunk, None
+
+                elif event_data.get("type") == "message_delta":
+                    stop_reason = event_data.get("delta", {}).get("stop_reason")
+
+            except Exception:
+                continue  # Skip malformed lines
+
+        yield "", stop_reason  # Final yield with stop_reason
+
+    except HTTPError as exc:
+        raise AIException(f"HTTP Error when reaching Claude: {exc.code}") from exc
+    except socket_timeout as exc:
+        raise AIException("Timed out") from exc
+    except Exception as exc:
+        if isinstance(getattr(exc, "reason", None), socket_timeout):
+            raise AIException("TLS timed out") from exc
+        if isinstance(getattr(exc, "reason", None), gaierror):
+            raise AIException("Failed domain name resolution") from exc
+        if isinstance(getattr(exc, "reason", None), SSLCertVerificationError):
+            raise AIException("Failed SSL cert validation") from exc
+        raise AIException("Unknown error when trying to reach Claude") from exc
 
 
 def ask_claude(
@@ -233,12 +305,13 @@ def load_system_prompt(system_prompt_arg: str):
 
 def consume_args():
     if len(argv) <= 1:
-        return True, None, None, None, None, None
+        return True, None, None, None, None, None, False
     prompt = None
     system_prompt = None
     specific_action = None
     files = []
     model = CLAUDE_MODELS[0].remote_handle
+    stream = False
     for arg in argv[1:]:
         if arg.startswith("file="):
             file_path = Path(arg[5:])
@@ -258,6 +331,9 @@ def consume_args():
         if arg.startswith("system="):
             system_prompt = arg[7:]
             continue
+        if arg.startswith("stream="):
+            stream = arg[7:].lower() in ("true", "1", "yes")
+            continue
         if arg.startswith("action="):
             specific_action = arg[7:]
             if specific_action != "list-models":
@@ -266,11 +342,11 @@ def consume_args():
         if prompt is not None:
             raise AIException("Multiple prompts detected, currently not allowed")
         prompt = arg
-    return False, specific_action, model, system_prompt, prompt, files or None
+    return False, specific_action, model, system_prompt, prompt, files or None, stream
 
 
 def main():
-    usage_required, specific_action, model, system_prompt_from_args, prompt, files = consume_args()
+    usage_required, specific_action, model, system_prompt_from_args, prompt, files, stream = consume_args()
     if usage_required:
         return usage()
     # TODO Add le Chat as far faster
@@ -300,11 +376,32 @@ def main():
     selected_system_prompt = system_prompt_from_args if system_prompt_from_args is not None else selected_system_prompt
     selected_system_prompt = None if selected_system_prompt == "original" else selected_system_prompt
     system_prompt = load_system_prompt(selected_system_prompt) if selected_system_prompt is not None else None
-    response = ask_claude(connection_infos, prompt, system_prompt=system_prompt, files=files, model=model)
-    answer, stopped_reasoning = extract_response(response)
-    print(answer)
-    if stopped_reasoning:
-        print(f"\n{Color.RED.value}⚠ Warning: Response truncated - reached token limit{Color.WHITE.value}", flush=True)
+
+    if stream:
+        # Stream response in real-time
+        stop_reason = None
+        for text_chunk, current_stop_reason in stream_claude(
+            connection_infos, prompt, system_prompt=system_prompt, files=files, model=model
+        ):
+            if text_chunk:
+                print(text_chunk, end="", flush=True)
+            if current_stop_reason:
+                stop_reason = current_stop_reason
+
+        print()  # Final newline
+        if stop_reason == "max_tokens":
+            print(
+                f"\n{Color.RED.value}⚠ Warning: Response truncated - reached token limit{Color.WHITE.value}", flush=True
+            )
+    else:
+        # Default: wait for complete response
+        response = ask_claude(connection_infos, prompt, system_prompt=system_prompt, files=files, model=model)
+        answer, stopped_reasoning = extract_response(response)
+        print(answer)
+        if stopped_reasoning:
+            print(
+                f"\n{Color.RED.value}⚠ Warning: Response truncated - reached token limit{Color.WHITE.value}", flush=True
+            )
 
 
 if __name__ == "__main__":
