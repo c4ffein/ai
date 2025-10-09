@@ -156,7 +156,7 @@ def post_body_to_claude(connection_infos: ConnectionInfos, url: str, json=EMPTY,
         raise AIException("Unable to parse JSON answer from the response") from exc
 
 
-def usage(wrong_config=False):
+def usage():
     output_lines = [
         "ai - KISS LLM bridge to your terminal",
         "─────────────────────────────────────",
@@ -261,7 +261,7 @@ def consume_args():
         if arg.startswith("action="):
             specific_action = arg[7:]
             if specific_action != "list-models":
-                raise AIException("Unknown action: {specific_action}")
+                raise AIException(f"Unknown action: {specific_action}")
             continue
         if prompt is not None:
             raise AIException("Multiple prompts detected, currently not allowed")
@@ -274,18 +274,26 @@ def main():
     if usage_required:
         return usage()
     # TODO Add le Chat as far faster
+    config_path = Path.home() / ".config" / "ai" / "config.json"
     try:
-        with (Path.home() / ".config" / "ai" / "config.json").open() as f:
-            config_content = f.read()  # TODO : HANDLE
+        with config_path.open() as f:
+            config_content = f.read()
         config_dict = loads(config_content)
+    except FileNotFoundError:
+        raise AIException(f"Config file not found: {config_path}")
+    except PermissionError:
+        raise AIException(f"Permission denied reading config: {config_path}")
+    except Exception as exc:
+        raise AIException(f"Failed to parse config JSON: {exc}") from exc
+    try:
         connection_infos = ConnectionInfos(
             cert_checksum=config_dict["certificate"],
-            cafile=config_dict["root-certificate-path"],
+            cafile=config_dict.get("root-certificate-path"),
             api_key=config_dict["api-key"],
         )
         system_prompt_from_config = config_dict.get("default-system-prompt")
-    except Exception:
-        return usage(wrong_config=True)
+    except KeyError as exc:
+        raise AIException(f"Missing required config key: {exc}") from exc
     if specific_action == "list-models":
         return list_models(connection_infos)
     selected_system_prompt = system_prompt_from_config if system_prompt_from_config is not None else None
@@ -296,7 +304,7 @@ def main():
     answer, stopped_reasoning = extract_response(response)
     print(answer)
     if stopped_reasoning:
-        raise AIException("Reached tokens limit")
+        print(f"\n{Color.RED.value}⚠ Warning: Response truncated - reached token limit{Color.WHITE.value}", flush=True)
 
 
 if __name__ == "__main__":
