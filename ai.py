@@ -134,7 +134,7 @@ def post_body_to_claude(connection_infos: ConnectionInfos, url: str, json=EMPTY,
         "User-Agent": "",  # Otherwise would send default User-Agent
         "Content-Type": "application/json",
     }
-    body = dumps(json).encode() if json is not EMPTY else None  # TODO Good encoding, check headers
+    body = dumps(json).encode() if json is not EMPTY else None
     request = Request(url, body, headers=headers) if json is not EMPTY else Request(url, headers=headers)
     try:
         response = urlopen(request, context=context, timeout=timeout)
