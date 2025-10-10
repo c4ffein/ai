@@ -159,47 +159,29 @@ def post_body_to_claude(connection_infos: ConnectionInfos, url: str, json=EMPTY,
         raise AIException("Unable to parse JSON answer from the response") from exc
 
 
-def usage():
-    output_lines = [
-        "ai - KISS LLM bridge to your terminal",
-        "─────────────────────────────────────",
-        """~/.config/ai/config.json     => {"api-key": "sk-ant-XXXX",""",
-        """                                 "certificate": "XXXX",""",
-        """                                 "root-certificate-path": "XXXX",""",
-        """                                 "default-system-prompt":"shannon"}""",
-        """~/.config/ai/system-prompts/ => directory to store system prompts by name""",
-        "─────────────────────────────────────",
-        """- ai                                 ==> show usage""",
-        """- ai "A question"                    ==> ask something""",
-        """- ai "A question" file="file.md"     ==> ask something with an additional file""",
-        """- ai "A question" model="claude-4"   ==> ask something with an specific model""",
-        """- ai "A question" system="shannon"   ==> ask something with a specific system prompt, by name""",
-        """- ai "A question" system="original"  ==> ask something ignoring the default-system-prompt config""",
-        """- ai "A question" stream=true        ==> stream response in real-time""",
-        "─────────────────────────────────────",
-        """- ai action=list-models              ==> list available models""",
-        "─────────────────────────────────────",
-        "Only reaching out to Claude for now, will maybe add Le Chat from Mistral",
-    ]
-    print("\n" + "\n".join(output_lines) + "\n")
-    return -1
+def build_message_content(prompt: str, files=None):
+    """Build Claude API message content with optional file attachments."""
+    if files is None:
+        return prompt
 
-
-def stream_claude(
-    connection_infos: ConnectionInfos, prompt: str, model: str, max_tokens: int = 10000, files=None, system_prompt=None
-):
-    """Stream responses from Claude API, yielding (text_chunk, stop_reason) tuples."""
     b64_file = lambda file: b64encode(Path(file).read_bytes()).decode()
     get_file = lambda file: (
         {"type": "document", "source": {"type": "base64", "media_type": guess_type(file)[0], "data": b64_file(file)}}
         if guess_type(file)[0] == "application/pdf"
         else {"type": "text", "text": Path(file).read_text()}
     )
-    content = [{"type": "text", "text": prompt}, *[get_file(file) for file in (files if files is not None else [])]]
+    return [{"type": "text", "text": prompt}, *[get_file(file) for file in files]]
+
+
+def stream_claude(
+    connection_infos: ConnectionInfos, prompt: str, model: str, max_tokens: int = 10000, files=None, system_prompt=None
+):
+    """Stream responses from Claude API, yielding (text_chunk, stop_reason) tuples."""
+    content = build_message_content(prompt, files)
     data = {
         "model": model,
         "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt if files is None else content}],
+        "messages": [{"role": "user", "content": content}],
         "stream": True,
         **({"system": system_prompt} if system_prompt is not None else {}),
     }
@@ -259,17 +241,11 @@ def stream_claude(
 def ask_claude(
     connection_infos: ConnectionInfos, prompt: str, model: str, max_tokens: int = 10000, files=None, system_prompt=None
 ) -> Dict[str, Any]:
-    b64_file = lambda file: b64encode(Path(file).read_bytes()).decode()
-    get_file = lambda file: (
-        {"type": "document", "source": {"type": "base64", "media_type": guess_type(file)[0], "data": b64_file(file)}}
-        if guess_type(file)[0] == "application/pdf"
-        else {"type": "text", "text": Path(file).read_text()}
-    )
-    content = [{"type": "text", "text": prompt}, *[get_file(file) for file in (files if files is not None else [])]]
+    content = build_message_content(prompt, files)
     data = {
         "model": model,
         "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt if files is None else content}],
+        "messages": [{"role": "user", "content": content}],
         **({"system": system_prompt} if system_prompt is not None else {}),
     }
     return post_body_to_claude(connection_infos, "https://api.anthropic.com/v1/messages", json=data, timeout=150)
@@ -293,6 +269,8 @@ def extract_response(api_response: Dict[str, Any]) -> tuple[Optional[str], bool]
 
 
 def load_system_prompt(system_prompt_arg: str):
+    if type(system_prompt_arg) is not str:
+        raise AIException(f"System prompt `{system_prompt_arg}` is not a str")
     sanitization_regex = r"[A-Za-z0-9._-]*"
     if not fullmatch(sanitization_regex, system_prompt_arg):
         raise AIException(f"System prompt name must fully match: {sanitization_regex}")
@@ -395,6 +373,32 @@ class Spinner:
             self.show_cursor()
 
 
+def usage():
+    output_lines = [
+        "ai - KISS LLM bridge to your terminal",
+        "─────────────────────────────────────",
+        """~/.config/ai/config.json     => {"api-key": "sk-ant-XXXX",""",
+        """                                 "certificate": "XXXX",""",
+        """                                 "root-certificate-path": "XXXX",""",
+        """                                 "default-system-prompt":"shannon"}""",
+        """~/.config/ai/system-prompts/ => directory to store system prompts by name""",
+        "─────────────────────────────────────",
+        """- ai                                 ==> show usage""",
+        """- ai "A question"                    ==> ask something""",
+        """- ai "A question" file="file.md"     ==> ask something with an additional file""",
+        """- ai "A question" model="claude-4"   ==> ask something with an specific model""",
+        """- ai "A question" system="shannon"   ==> ask something with a specific system prompt, by name""",
+        """- ai "A question" system="original"  ==> ask something ignoring the default-system-prompt config""",
+        """- ai "A question" stream=true        ==> stream response in real-time""",
+        "─────────────────────────────────────",
+        """- ai action=list-models              ==> list available models""",
+        "─────────────────────────────────────",
+        "Only reaching out to Claude for now, will maybe add Le Chat from Mistral",
+    ]
+    print("\n" + "\n".join(output_lines) + "\n")
+    return -1
+
+
 def main():
     usage_required, specific_action, model, system_prompt_from_args, prompt, files, stream = consume_args()
     if usage_required:
@@ -422,8 +426,7 @@ def main():
         raise AIException(f"Missing required config key: {exc}") from exc
     if specific_action == "list-models":
         return list_models(connection_infos)
-    selected_system_prompt = system_prompt_from_config if system_prompt_from_config is not None else None
-    selected_system_prompt = system_prompt_from_args if system_prompt_from_args is not None else selected_system_prompt
+    selected_system_prompt = system_prompt_from_args or system_prompt_from_config or None
     selected_system_prompt = None if selected_system_prompt == "original" else selected_system_prompt
     system_prompt = load_system_prompt(selected_system_prompt) if selected_system_prompt is not None else None
 
