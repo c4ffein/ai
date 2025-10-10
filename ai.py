@@ -9,6 +9,9 @@ TODOs and possible improvements: Fill this
 """
 
 import os
+import sys
+import threading
+import time
 from base64 import b64encode
 from collections import namedtuple
 from datetime import datetime, timezone
@@ -345,6 +348,53 @@ def consume_args():
     return False, specific_action, model, system_prompt, prompt, files or None, stream
 
 
+class Spinner:
+    """Simple ASCII animation spinner for terminal"""
+
+    def __init__(self):
+        self.frames, self.running, self.thread = ["◐", "◓", "◑", "◒"], False, None
+
+    @staticmethod
+    def hide_cursor():
+        if sys.stderr.isatty():
+            sys.stderr.write("\033[?25l")  # ANSI escape code to hide cursor
+            sys.stderr.flush()
+
+    @staticmethod
+    def show_cursor():
+        if sys.stderr.isatty():
+            sys.stderr.write("\033[?25h")  # ANSI escape code to show cursor
+            sys.stderr.flush()
+
+    def _animate(self):
+        idx = 0
+        while self.running:
+            sys.stderr.write(f"\r{Color.DIM.value}{self.frames[idx]}{Color.WHITE.value} ")
+            sys.stderr.flush()
+            idx = (idx + 1) % len(self.frames)
+            time.sleep(0.1)
+
+    def start(self):
+        # Only show spinner in interactive terminals
+        if not sys.stderr.isatty():
+            return
+        self.hide_cursor()
+        time.sleep(0.01)  # Tiny delay to ensure cursor is hidden before first frame
+        self.running = True
+        self.thread = threading.Thread(target=self._animate, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=0.5)
+        # Always restore cursor and clear spinner line, even if thread didn't start
+        if sys.stderr.isatty():
+            sys.stderr.write("\r  \r")  # Clear the spinner
+            sys.stderr.flush()
+            self.show_cursor()
+
+
 def main():
     usage_required, specific_action, model, system_prompt_from_args, prompt, files, stream = consume_args()
     if usage_required:
@@ -394,9 +444,14 @@ def main():
                 f"\n{Color.RED.value}⚠ Warning: Response truncated - reached token limit{Color.WHITE.value}", flush=True
             )
     else:
-        # Default: wait for complete response
-        response = ask_claude(connection_infos, prompt, system_prompt=system_prompt, files=files, model=model)
-        answer, stopped_reasoning = extract_response(response)
+        # Default: wait for complete response with animation
+        spinner = Spinner()
+        spinner.start()
+        try:
+            response = ask_claude(connection_infos, prompt, system_prompt=system_prompt, files=files, model=model)
+            answer, stopped_reasoning = extract_response(response)
+        finally:
+            spinner.stop()
         print(answer)
         if stopped_reasoning:
             print(
@@ -404,7 +459,15 @@ def main():
             )
 
 
+def restore_cursor():
+    """Emergency cursor restoration - always called on exit"""
+    Spinner.show_cursor()
+
+
 if __name__ == "__main__":
+    import atexit
+
+    atexit.register(restore_cursor)  # Ensure cursor is restored on any exit
     try:
         exit(main())
     except KeyboardInterrupt:
