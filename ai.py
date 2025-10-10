@@ -5,7 +5,6 @@ ai - KISS cli to connect to remote conversational AI
 MIT License - Copyright (c) 2025 c4ffein
 WARNING: I don't recommand using this as-is. This a PoC, and usable by me because I know what I want to do with it.
 - You can use it if you feel that you can edit the code yourself and you can live with my future breaking changes.
-TODOs and possible improvements: Fill this
 """
 
 import os
@@ -403,7 +402,6 @@ def main():
     usage_required, specific_action, model, system_prompt_from_args, prompt, files, stream = consume_args()
     if usage_required:
         return usage()
-    # TODO Add le Chat as far faster
     config_path = Path.home() / ".config" / "ai" / "config.json"
     try:
         with config_path.open() as f:
