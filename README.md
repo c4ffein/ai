@@ -17,6 +17,7 @@ ai - KISS LLM bridge to your terminal
 - ai "A question" model="claude-4"   ==> ask something with an specific model
 - ai "A question" system="shannon"   ==> ask something with a specific system prompt, by name
 - ai "A question" system="original"  ==> ask something ignoring the default-system-prompt config
+- ai "A question" stream=true        ==> stream response in real-time
 ─────────────────────────────────────
 - ai action=list-models              ==> list available models
 ─────────────────────────────────────
