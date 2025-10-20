@@ -349,7 +349,7 @@ class Spinner:
             sys.stderr.write(f"\r{Color.DIM.value}{self.frames[idx]}{Color.WHITE.value} ")
             sys.stderr.flush()
             idx = (idx + 1) % len(self.frames)
-            time.sleep(0.1)
+            time.sleep(1 / 48)
 
     def start(self):
         # Only show spinner in interactive terminals
