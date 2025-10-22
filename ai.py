@@ -261,8 +261,16 @@ def list_models(connection_infos: ConnectionInfos) -> Dict[str, Any]:
 
 
 def extract_response(api_response: Dict[str, Any]) -> tuple[Optional[str], bool]:
+    # Check for refusal first
+    stop_reason = api_response.get("stop_reason")
+    if stop_reason == "refusal":
+        raise AIException("Claude refused to respond to this request (content policy)")
+    # Try to extract the text content
     try:
-        return api_response["content"][0]["text"], api_response["stop_reason"] == "max_tokens"
+        content = api_response.get("content", [])
+        if not content:
+            raise AIException(f"Empty response from API (stop_reason: {stop_reason})")
+        return content[0]["text"], stop_reason == "max_tokens"
     except (KeyError, IndexError) as err:
         raise AIException("Unexpected API response format") from err
 
@@ -440,6 +448,8 @@ def main():
                 stop_reason = current_stop_reason
 
         print()  # Final newline
+        if stop_reason == "refusal":
+            raise AIException("Claude refused to respond to this request (content policy)")
         if stop_reason == "max_tokens":
             print(
                 f"\n{Color.RED.value}⚠ Warning: Response truncated - reached token limit{Color.WHITE.value}", flush=True
